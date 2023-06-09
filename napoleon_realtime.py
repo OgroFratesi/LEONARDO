@@ -16,7 +16,6 @@ from helpers import *
 from helper_napoleon import *
 import warnings
 warnings.filterwarnings('ignore')
-
 import tweepy
  
 # API keyws that yous saved earlier
@@ -55,7 +54,7 @@ To sum up:
 '''
 class LEONARDO:
 
-    def __init__(self, indicadores,cryptos, target_vector,trade_size):
+    def __init__(self, indicadores,cryptos, target_vector,trade_size, API_KEY, SECRET_KEY):
         
         # list of crypto symbols we want to trade (remember to use +USDT)
         self.cryptos = cryptos
@@ -65,7 +64,9 @@ class LEONARDO:
         self.list_indicators = indicadores
         # How much we want to spend in each trade
         self.trade_size = trade_size
-        self.client = Client(config.API_KEY, config.SECRET_KEY, tld='com')
+        self.API_KEY = API_KEY
+        self.SECRET_KEY = SECRET_KEY
+        self.client = Client(self.API_KEY, self.SECRET_KEY, tld='com')
 
         self.scores_dfs = {}        
         self.TRACK_DICTIONARY = {}
@@ -77,17 +78,17 @@ class LEONARDO:
 
     def run(self):
 
-        self.client = Client(config.API_KEY, config.SECRET_KEY, tld='com')
+        self.client = Client(self.API_KEY, self.SECRET_KEY, tld='com')
 
         while True:
             
             # Keep local track, we can know when was stopped
-            file1 = open("trackeo.txt","w")
+            file1 = open("data/trackeo.txt","w")
             file1.write(f"{datetime.now()}")
             file1.close()
             
             # We connect every time we can in case we lost connection
-            self.client = Client(config.API_KEY, config.SECRET_KEY, tld='com')
+            self.client = Client(self.API_KEY, self.SECRET_KEY, tld='com')
             test_df = []
             
             try:
@@ -107,7 +108,7 @@ class LEONARDO:
                     test_df.append(this_crypto)
 
             except Exception as e: 
-                file1 = open("error.txt","w")
+                file1 = open("data/error.txt","w")
                 # Send tweet in case it was disconnected
                 tweet('ERROR', F'{datetime.now()}', '0',f'ERROR' )
                 file1.write(f"{e},{datetime.now()}")
@@ -139,9 +140,9 @@ class LEONARDO:
                 target = strategy.iloc[-1,-1]
                 if target == 1:
                     random_tw = random.randint(1, 1000000)
-                    tweet('{CRYPTO}', F'{datetime.now()}', '0',f'1st signal' )
-                    file1 = open("trigger.txt","w")
-                    file1.write(f"{CRYPTO},{datetime.now()}, {dif_time}")
+                    tweet(f'{CRYPTO}', F'{datetime.now()}', '0',f'1st signal' )
+                    file1 = open("data/trigger.txt","a")
+                    file1.write(f"{CRYPTO},{datetime.now()}, {dif_time}\n")
                     file1.close()
                     sleep(1)
 
@@ -151,7 +152,7 @@ class LEONARDO:
                     # If there are more than one trade signal at the same time
                     if (len(self.TRACK_DICTIONARY) < 4):
                         # Just in case..
-                        self.client = Client(config.API_KEY, config.SECRET_KEY, tld='com')
+                        self.client = Client(self.API_KEY, self.SECRET_KEY, tld='com')
                         # need to calculate the quantity given the amount of money we want for each trade
                         QUANTITY = self.trade_size / strategy.iloc[-1, 1]
                         # Let's grab the most recent price
@@ -515,12 +516,12 @@ class LEONARDO:
 
 
             if DONE:
-                track = pd.read_csv('track_df.csv', index_col=0)
+                track = pd.read_csv('data/track_df.csv', index_col=0)
                 tipo = 'SHORT'
                 combi = self.TRACK_DICTIONARY[SYMBOL]['combi']
                 TRACK_DF = pd.DataFrame({'CRYPTO':SYMBOL, 'SELL_TIME':TIME_SELL,  'PRICE_SELL':PRICE_SELL,'BUY_TIME':datetime.now(), 'PRICE_BUY':FINAL_PRICE, 'type':tipo}, index=[0])
                 TRACK_DF = pd.concat([track, TRACK_DF])
-                TRACK_DF.to_csv('track_df.csv')
+                TRACK_DF.to_csv('data/track_df.csv')
                 del self.TRACK_DICTIONARY[SYMBOL]
                 break
                 print('*****************************************************')
@@ -593,11 +594,11 @@ class LEONARDO:
                         tweet(tipo, 'WIN :)', result_price, SYMBOL)
                         DONE = True
             if DONE:
-                track = pd.read_csv('track_df.csv', index_col=0)
+                track = pd.read_csv('data/track_df.csv', index_col=0)
                 tipo = 'LONG'
                 TRACK_DF = pd.DataFrame({'CRYPTO':SYMBOL, 'SELL_TIME':datetime.now(),  'PRICE_SELL':FINAL_PRICE,'BUY_TIME':TIME_BUY, 'PRICE_BUY':BUY_PRICE, 'type':tipo}, index=[0])
                 TRACK_DF = pd.concat([track, TRACK_DF])
-                TRACK_DF.to_csv('track_df.csv')
+                TRACK_DF.to_csv('data/track_df.csv')
                 del self.TRACK_DICTIONARY[SYMBOL]
                 break
                 print('*****************************************************')

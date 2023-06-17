@@ -61,7 +61,7 @@ class LEONARDO:
     def __init__(self, indicadores,cryptos, target_vector,trade_size,API_KEY, SECRET_KEY):
 
         # or create a resource
-        dynamodb_resource = boto3.resource('dynamodb')
+        dynamodb_resource = boto3.resource('dynamodb',region_name='eu-west-2')
         dynamodb_table = dynamodb_resource.Table('leonardo_results')
         
         self.dynamodb_table = dynamodb_table

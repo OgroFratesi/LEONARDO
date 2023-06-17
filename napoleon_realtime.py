@@ -15,8 +15,6 @@ import tqdm
 from helper_napoleon import *
 import warnings
 warnings.filterwarnings('ignore')
-
-import tweepy
  
 # API keyws that yous saved earlier
 consumer_key = "97r4ZfzENsl5CmPHD26nffhfX"

@@ -20,6 +20,6 @@ trader = LEONARDO(indicators, names_crypto, target_vector, trade_size=200,
 
 if __name__ == "__main__":
 
-    order = trader.buy_symbol('SOLUSDT', 10)
+    print('LEONARDO ha comenzado. Buena suerte.')
     
     trader.run()

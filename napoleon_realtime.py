@@ -237,7 +237,7 @@ class LEONARDO:
                         
             time_elapsed_total = (datetime.now() - self.LAST_SELL).total_seconds() / 60
 
-            if (int(time_elapsed_total) % 180) == 0: 
+            if (int(time_elapsed_total) % 15) == 0: 
                 if int(time_elapsed_total) != 0:
                     random_tw = random.randint(1, 1000000)
                     tweet('STILL ALIVE', 'be patient bro', '0',f'small steps' )

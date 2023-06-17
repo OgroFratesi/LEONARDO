@@ -1,19 +1,16 @@
 from time import sleep
 import pandas as pd
 from datetime import datetime, timedelta
-import itertools
 import random
-import requests
 import numpy as np
 from binance.client import Client
 from requests_oauthlib import OAuth1Session
 from binance.enums import *
 from datetime import datetime 
-import ta
 import decimal
-import tqdm
 from helper_napoleon import *
 import warnings
+import boto3
 warnings.filterwarnings('ignore')
  
 # API keyws that yous saved earlier
@@ -42,6 +39,7 @@ def tweet(tipo, result, result_price, symbol):
     )
 
 
+
 '''
 The following class will request the lately historical prices for the given crypto symbols and add the given indicators. 
 After that, it will iterate over each of them, checking if at least one indicator is giving the first signal. Then, that crypto 
@@ -61,12 +59,17 @@ To sum up:
 class LEONARDO:
 
     def __init__(self, indicadores,cryptos, target_vector,trade_size,API_KEY, SECRET_KEY):
+
+        # or create a resource
+        dynamodb_resource = boto3.resource('dynamodb')
+        dynamodb_table = dynamodb_resource.Table('leonardo_results')
         
+        self.dynamodb_table = dynamodb_table
         self.API_KEY = API_KEY
         self.SECRET_KEY = SECRET_KEY
         
         # list of crypto symbols we want to trade (remember to use +USDT)
-        self.target_cryptos = cryptos
+        self.cryptos = cryptos
         # Target vector is the combination of each indicator (optimized with aws batch jobs)
         self.target_vector = target_vector
         # This is the indicators dictionary used in the batch optimization
@@ -474,13 +477,9 @@ class LEONARDO:
                 symbol=SYMBOL,
                 orderId=stop_loss_id)
             sleep(2)
-            file1 = open("data/trackeo_long.txt","w")
-            file1.write(f"antes de crear el stop, {SYMBOL}, {datetime.now()}")
-            file1.close()
+
             stop_loss = self.create_stop_loss_long(f'{SYMBOL}', QUANTITY, PRICE)
-            file1 = open("data/trackeo_long.txt","w")
-            file1.write(f"despues de crear el stop, {SYMBOL}, {datetime.now()}")
-            file1.close()
+
         
         self.TRACK_DICTIONARY[SYMBOL]['stop_loss_id'] = stop_loss
 
@@ -524,7 +523,6 @@ class LEONARDO:
             tipo = self.TRACK_DICTIONARY[SYMBOL]['type']
 
             if time_elapsed > 30:
-                print(f'SYMBOL {SYMBOL} NO MORE TIME :( short')
                 FINAL_PRICE = float(self.finish_order_short(SYMBOL))
                 result_price = round((PRICE_SELL - FINAL_PRICE) / FINAL_PRICE * 100, 2)
                 tweet(tipo, 'Time Elapsed :|', result_price, SYMBOL)
@@ -538,17 +536,13 @@ class LEONARDO:
                     resu = 'WIN :)'
                 else:
                     resu = 'LOST :('
-                    print(f'{SYMBOL} LOST :(')
                 tweet(tipo, resu, result_price, SYMBOL)
             elif last_price > LOSE_PRICE * 1.002:
-                print(f'SYMBOL {SYMBOL} STOP DIDNT WORK :( short')
                 FINAL_PRICE = float(self.finish_order_short(SYMBOL))
                 result_price = round((PRICE_SELL - FINAL_PRICE) / FINAL_PRICE * 100, 2)
                 tweet(tipo, 'LOST :(', result_price, SYMBOL)
                 DONE = True
             elif last_price < self.dynamic_dic[SYMBOL]:
-                print('dynamic short')
-                print(f'SYMBOL {SYMBOL} WIN! :)')
                 sleep(25)
                 try:
                     self.dynamic_stop(SYMBOL, self.dynamic_dic[SYMBOL], SHORT=True)
@@ -561,14 +555,8 @@ class LEONARDO:
 
 
             if DONE:
-                track = pd.read_csv('data/track_df.csv', index_col=0)
                 tipo = 'SHORT'
-                file1 = open("data/trigger.txt","a")
-                file1.write(f"Symbol: {SYMBOL}, Time: {datetime.now()}, TYPE: both, number 5, \n")
-                file1.close()
-                TRACK_DF = pd.DataFrame({'CRYPTO':SYMBOL, 'SELL_TIME':TIME_SELL,  'PRICE_SELL':PRICE_SELL,'BUY_TIME':datetime.now(), 'PRICE_BUY':FINAL_PRICE, 'type':tipo}, index=[0])
-                TRACK_DF = pd.concat([track, TRACK_DF])
-                TRACK_DF.to_csv('data/track_df.csv')
+                self.insert_item_dynamo_final(datetime.now(),SYMBOL,tipo,datetime.now,FINAL_PRICE, TIME_SELL, PRICE_SELL)
                 del self.TRACK_DICTIONARY[SYMBOL]
                 break
                 print('*****************************************************')
@@ -612,19 +600,12 @@ class LEONARDO:
                 orderId= self.TRACK_DICTIONARY[SYMBOL]['stop_loss_id'] )['price'])
 
                 if time_elapsed > 30:
-                    file1 = open("data/trackeo_long.txt","w")
-                    file1.write(f"long time elapsed, {SYMBOL}, {datetime.now()}")
-                    file1.close()
                     FINAL_PRICE = float(self.finish_order_long(SYMBOL))
                     result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
                     tweet(tipo, 'Time Elapsed :|', result_price, SYMBOL)
-                    print(f'SYMBOL {SYMBOL} NO MORE TIME :(, FINISH ORDER')
                     DONE = True
                 elif status in ['FILLED', 'CANCELED']:
                     DONE = True
-                    file1 = open("data/trackeo_long.txt","w")
-                    file1.write(f"long status, {SYMBOL}, {datetime.now()}")
-                    file1.close()
                     FINAL_PRICE = LOSE_PRICE
                     result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
                     if result_price > 0:
@@ -634,21 +615,13 @@ class LEONARDO:
                         resu = 'LOST :('
                     tweet(tipo, resu, result_price, SYMBOL)
                 elif last_price < LOSE_PRICE * 0.998:
-                    file1 = open("data/trackeo_long.txt","w")
-                    file1.write(f"long lost, {SYMBOL}, {datetime.now()}")
-                    file1.close()
-                    print(f'SYMBOL {SYMBOL} STOP DIDNT WORK :(')
                     FINAL_PRICE = float(self.finish_order_long(SYMBOL))
                     result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
                     tweet(tipo, 'LOST :(', result_price, SYMBOL)
                     DONE = True
                 elif last_price > self.dynamic_dic[SYMBOL]:
-                    print('paso el win')
                     DYNAMIC = True
                     sleep(25)
-                    file1 = open("data/trackeo_long.txt","w")
-                    file1.write(f"long win, {SYMBOL}, {datetime.now()}")
-                    file1.close()
                     try:
                         self.dynamic_stop(SYMBOL, self.dynamic_dic[SYMBOL])
                         self.dynamic_dic[SYMBOL] = self.dynamic_dic[SYMBOL] * 1.0035
@@ -658,14 +631,8 @@ class LEONARDO:
                         tweet(tipo, 'WIN :)', result_price, SYMBOL)
                         DONE = True
             if DONE:
-                track = pd.read_csv('data/track_df.csv', index_col=0)
                 tipo = 'LONG'
-                file1 = open("data/trigger.txt","a")
-                file1.write(f"Symbol: {SYMBOL}, Time: {datetime.now()}, TYPE: both, number 5, \n")
-                file1.close()
-                TRACK_DF = pd.DataFrame({'CRYPTO':SYMBOL, 'SELL_TIME':datetime.now(),  'PRICE_SELL':FINAL_PRICE,'BUY_TIME':TIME_BUY, 'PRICE_BUY':BUY_PRICE, 'type':tipo}, index=[0])
-                TRACK_DF = pd.concat([track, TRACK_DF])
-                TRACK_DF.to_csv('data/track_df.csv')
+                self.insert_item_dynamo_final(datetime.now(),SYMBOL,tipo,TIME_BUY,BUY_PRICE, datetime.now(), FINAL_PRICE)
                 del self.TRACK_DICTIONARY[SYMBOL]
                 break
                 print('*****************************************************')
@@ -677,11 +644,6 @@ class LEONARDO:
         
         QUANTITY = QUANTITY * 0.998
         QUANTITY_INT = self.create_quantity(SYMBOL, QUANTITY)
-#         info = self.client.get_margin_account()
-#         for assets in info['userAssets']:
-#             if assets['asset'] == SYMBOL[:-4]:
-#                 QUANTITY_INT = assets['netAsset']
-#                 print(QUANTITY_INT)
 
         transaction = self.client.repay_margin_loan(asset=SYMBOL[:-4], amount=QUANTITY_INT)
         transaction_id = transaction['tranId']
@@ -692,12 +654,19 @@ class LEONARDO:
         if details['rows'][0]['status'] != 'CONFIRMED':
             return print('ERROR PAYING THE LOAN')
         
-        
-    
-                
+    def insert_item_dynamo_final(self, time, symbol, TYPE, buy_time, buy_price, sell_time, sell_price):
 
-    def last_results(self):
-        return self.scores_dfs
+        item_data = {
+            'time': f'{time}',
+            'symbol': f'{symbol}',
+            'type':f'{TYPE}',
+            'buy_time': f'{buy_time}',
+            'price_buy':f'{buy_price}',
+            'sell_time':f'{sell_time}',
+            'sell_price':f'{sell_price}'
+        }
+
+        response = self.dynamodb_table.put_item(Item=item_data)
 
 
 

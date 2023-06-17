@@ -1,9 +1,10 @@
 import pandas as pd
 import numpy as np
 from napoleon_realtime import *
+import boto3
+from config import *
 
-API_KEY = input('Insert Binance API KEY:')
-SECRET_KEY = input('Insert Binance SECRET KEY:')
+
 
 names_crypto = ['SOLUSDT','ADAUSDT','XRPUSDT','MATICUSDT','DOGEUSDT','FTMUSDT','LUNAUSDT']
 indicators = {'EMA5':[15,30,45],'low5':[5,30], 'diff%':[10], 'rsi5':[14], 'BB5':[10,20],'BB1':[20], 'rsi1':[14]}
@@ -20,6 +21,10 @@ trader = LEONARDO(indicators, names_crypto, target_vector, trade_size=200,
 
 if __name__ == "__main__":
 
+    time.sleep(3)
+
     print('LEONARDO ha comenzado. Buena suerte.')
+
+    trader.insert_item_dynamo_final(datetime.now(), 'test', 'test', 'test', 'test', 'test', 'test')
     
     trader.run()

@@ -99,39 +99,6 @@ class LEONARDO:
             # We connect every time we can in case we lost connection
             self.client = Client(self.API_KEY, self.SECRET_KEY, tld='com')
             test_df = []
-            
-            
-
-
-            url = 'https://api.binance.com/api/v3/ticker/24hr'
-            response = requests.get(url)
-
-            data = response.json()
-
-            url = 'https://api.binance.com/api/v3/exchangeInfo'
-            response = requests.get(url)
-            data_margin = response.json()['symbols']
-            
-            usdt_symbols = []
-
-            for symbol in data:
-                if symbol['symbol'].endswith('USDT'):
-                    for symbol_margin in data_margin:
-                        if symbol['symbol'] == symbol_margin['symbol']:
-                            if symbol_margin['isMarginTradingAllowed']:
-                                usdt_symbols.append(symbol)
-
-            sorted_symbols = sorted(usdt_symbols, key=lambda x: float(x['priceChangePercent']), reverse=True)
-            
-            self.cryptos = self.target_cryptos.copy()
-            
-            
-#             for symbol in sorted_symbols[:3]:
-#                 symbol_name = symbol['symbol']
-#                 self.cryptos.append(symbol_name)
-#             for symbol in sorted_symbols[-3:]:
-#                 symbol_name = symbol['symbol']
-#                 self.cryptos.append(symbol_name)
                 
                 
             try:
@@ -154,7 +121,7 @@ class LEONARDO:
                 
                 file1 = open("data/error.txt","w")
                 # Send tweet in case it was disconnected
-                tweet('ERROR', f'{datetime.now()}', '0',f'ERROR')
+                tweet('ERROR', f'{datetime.now()}', f'{e}',f'ERROR')
                 file1.write(f"{e},{datetime.now()}")
                 file1.close()
                 sleep(4)

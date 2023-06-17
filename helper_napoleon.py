@@ -9,6 +9,38 @@ from tqdm import tqdm
 import numpy as np
 
 
+def convert_df(historical):
+
+    time = []
+    open = []
+    high = []
+    low = []
+    close = []
+    volume = []
+
+    for e in range(len(historical)):
+        hist_data = historical[e]
+        time.append(convert_time(hist_data[0]))
+        open.append(hist_data[1])
+        high.append(hist_data[2])
+        low.append(hist_data[3])
+        close.append(hist_data[4])
+        volume.append(hist_data[5])
+
+    df = pd.DataFrame({'time':time,'open':open, 'high':high, 'low':low, 'close':close, 'volume':volume})
+    df['open'] = df['open'].astype(float)
+    df['high'] = df['high'].astype(float)
+    df['low'] = df['low'].astype(float)
+    df['close'] = df['close'].astype(float)
+    df['volume'] = df['volume'].astype(float)
+
+    return df
+
+def convert_time(time):
+    d = datetime.fromtimestamp(int(str(time))/1000)
+    return d
+
+
 
 def create_indicators(indicators,df_use, timeframe):
 

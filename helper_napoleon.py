@@ -103,11 +103,10 @@ def check_strategy(uniques, df_use):
         doty = np.dot(df_array ,unique_combi.reshape(columnas, -1))
         equal_to = columnas - len(zero_indices)
         df_use_calculate['target'] = np.where(doty == equal_to, 1, 0)
-        df_use_calculate['target'] = np.where((df_use_calculate.target.shift(1).rolling(5).sum() > 0), 0, df_use_calculate['target'])
 
         if df_use_calculate.shape[0] < 3:
             return pd.DataFrame()
-        if df_use_calculate.iloc[-1, -1] == 1:
+        if df_use_calculate.iloc[-2, -1] == 1:
             print(df_use_calculate.crypto.values[0])
             return df_use_calculate
 

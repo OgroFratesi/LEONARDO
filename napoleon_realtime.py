@@ -1,39 +1,47 @@
 from time import sleep
 import pandas as pd
 from datetime import datetime, timedelta
-import config as config
 import itertools
 import random
+import requests
 import numpy as np
 from binance.client import Client
+from requests_oauthlib import OAuth1Session
 from binance.enums import *
-# import simpleaudio as sa
 from datetime import datetime 
 import ta
 import decimal
 import tqdm
-from helpers import *
 from helper_napoleon import *
 import warnings
 warnings.filterwarnings('ignore')
+
 import tweepy
  
 # API keyws that yous saved earlier
-api_key = "97r4ZfzENsl5CmPHD26nffhfX"
-api_secrets = "B2JYXlsm1H4VW2pzK8klarhgOxqdH2pz6RDSacnARQ7sKfgJ0z"
+consumer_key = "97r4ZfzENsl5CmPHD26nffhfX"
+consumer_secret = "B2JYXlsm1H4VW2pzK8klarhgOxqdH2pz6RDSacnARQ7sKfgJ0z"
 access_token = "1549009688297181184-KtMzDikMjJjmpdddn6zbbLU76EiSLm"
-access_secret = "AatmsmI42WlaD2FCUs5pVNL5CGCQ1HazLS8M8hihIitgz"
- 
-# Authenticate to Twitter
-auth = tweepy.OAuthHandler(api_key,api_secrets)
-auth.set_access_token(access_token,access_secret)
- 
-api = tweepy.API(auth)
+access_token_secret = "AatmsmI42WlaD2FCUs5pVNL5CGCQ1HazLS8M8hihIitgz"
+
+# Make the request
+oauth = OAuth1Session(
+    consumer_key,
+    client_secret=consumer_secret,
+    resource_owner_key=access_token,
+    resource_owner_secret=access_token_secret,
+)
+
 # Create function to make the tweet notification
 def tweet(tipo, result, result_price, symbol):
     random_tw = random.randint(1, 10000)
     status = f"{random_tw} | {tipo}  |  {symbol}  |  {result}  |  {result_price}%"
-    api.update_status(status=status)
+    # Making the request
+    payload = {'text':status}
+    response = oauth.post(
+        "https://api.twitter.com/2/tweets",
+        json=payload,
+    )
 
 
 '''
@@ -54,18 +62,19 @@ To sum up:
 '''
 class LEONARDO:
 
-    def __init__(self, indicadores,cryptos, target_vector,trade_size, API_KEY, SECRET_KEY):
+    def __init__(self, indicadores,cryptos, target_vector,trade_size,API_KEY, SECRET_KEY):
+        
+        self.API_KEY = API_KEY
+        self.SECRET_KEY = SECRET_KEY
         
         # list of crypto symbols we want to trade (remember to use +USDT)
-        self.cryptos = cryptos
+        self.target_cryptos = cryptos
         # Target vector is the combination of each indicator (optimized with aws batch jobs)
         self.target_vector = target_vector
         # This is the indicators dictionary used in the batch optimization
         self.list_indicators = indicadores
         # How much we want to spend in each trade
         self.trade_size = trade_size
-        self.API_KEY = API_KEY
-        self.SECRET_KEY = SECRET_KEY
         self.client = Client(self.API_KEY, self.SECRET_KEY, tld='com')
 
         self.scores_dfs = {}        
@@ -75,6 +84,8 @@ class LEONARDO:
         self.twitter_count = 0
         
         self.LAST_SELL = datetime.now() - timedelta(minutes=20)
+        
+
 
     def run(self):
 
@@ -91,6 +102,40 @@ class LEONARDO:
             self.client = Client(self.API_KEY, self.SECRET_KEY, tld='com')
             test_df = []
             
+            
+
+
+            url = 'https://api.binance.com/api/v3/ticker/24hr'
+            response = requests.get(url)
+
+            data = response.json()
+
+            url = 'https://api.binance.com/api/v3/exchangeInfo'
+            response = requests.get(url)
+            data_margin = response.json()['symbols']
+            
+            usdt_symbols = []
+
+            for symbol in data:
+                if symbol['symbol'].endswith('USDT'):
+                    for symbol_margin in data_margin:
+                        if symbol['symbol'] == symbol_margin['symbol']:
+                            if symbol_margin['isMarginTradingAllowed']:
+                                usdt_symbols.append(symbol)
+
+            sorted_symbols = sorted(usdt_symbols, key=lambda x: float(x['priceChangePercent']), reverse=True)
+            
+            self.cryptos = self.target_cryptos.copy()
+            
+            
+#             for symbol in sorted_symbols[:3]:
+#                 symbol_name = symbol['symbol']
+#                 self.cryptos.append(symbol_name)
+#             for symbol in sorted_symbols[-3:]:
+#                 symbol_name = symbol['symbol']
+#                 self.cryptos.append(symbol_name)
+                
+                
             try:
 
                 for cr in self.cryptos:
@@ -108,12 +153,14 @@ class LEONARDO:
                     test_df.append(this_crypto)
 
             except Exception as e: 
+                
                 file1 = open("data/error.txt","w")
                 # Send tweet in case it was disconnected
-                tweet('ERROR', F'{datetime.now()}', '0',f'ERROR' )
+                tweet('ERROR', f'{datetime.now()}', '0',f'ERROR')
                 file1.write(f"{e},{datetime.now()}")
                 file1.close()
                 sleep(4)
+                continue
 
             df_all = pd.concat(test_df)
             # Add indicators to each historical crypto price
@@ -123,72 +170,93 @@ class LEONARDO:
                 df_use = create_combinations(self.list_indicators, df_crypto)
                 df_use_crypto.append(df_use)
             df_use_crypto = pd.concat(df_use_crypto)
-             
+            
 
             for CRYPTO in self.cryptos:
                 
                 # If we already have an active trade with this crypto, continue with the second one
-                if crypto in self.TRACK_DICTIONARY.keys(): continue
+                if CRYPTO in self.TRACK_DICTIONARY.keys(): continue
                 
                 df_crypto = df_use_crypto[df_use_crypto.crypto == CRYPTO]
                 strategy = check_strategy(self.target_vector, df_crypto)
-
+                
                 # When is the last price we have
-                last_price_time = strategy.iloc[-1, 0]
+                last_price_time = strategy.iloc[-2, 0]
                 dif_time = (datetime.now() - last_price_time).total_seconds() / 60
                 # Is the first signal?
-                target = strategy.iloc[-1,-1]
-                if target == 1:
-                    random_tw = random.randint(1, 1000000)
-                    tweet(f'{CRYPTO}', F'{datetime.now()}', '0',f'1st signal' )
-                    file1 = open("data/trigger.txt","a")
-                    file1.write(f"{CRYPTO},{datetime.now()}, {dif_time}\n")
-                    file1.close()
-                    sleep(1)
-
+                target = strategy.iloc[-2,-1]
+                price = strategy.iloc[-2, 4]
                 if ((dif_time > 4) & (dif_time < 9)) & (target == 1):
         
                     time_elapsed = (datetime.now() - self.LAST_SELL).total_seconds() / 60
                     # If there are more than one trade signal at the same time
-                    if (len(self.TRACK_DICTIONARY) < 4):
+                    if (len(self.TRACK_DICTIONARY) < 2):
+                        random_tw = random.randint(1, 1000000)
+#                         tweet(f'{CRYPTO}', f'{datetime.now()}', f'{price}',f'1st signal')
+                        file1 = open("data/trigger.txt","a")
+                        file1.write(f"Symbol: {CRYPTO}, Time: {datetime.now()}, Price: {price}, number 1, \n")
+                        file1.close()
+                        sleep(1)
+                        
+                        
                         # Just in case..
                         self.client = Client(self.API_KEY, self.SECRET_KEY, tld='com')
                         # need to calculate the quantity given the amount of money we want for each trade
                         QUANTITY = self.trade_size / strategy.iloc[-1, 1]
                         # Let's grab the most recent price
-                        historical = self.client.get_historical_klines(CRYPTO, '5m' , "2 days ago UTC")
+                        historical = self.client.get_historical_klines(CRYPTO, '5m' , "1 hour ago UTC")
                         minute5 = convert_df(historical)
-                        LAST_PRICE = minute5.iloc[-1, 4]
+                        LAST_PRICE = minute5.iloc[-2, 4]
                         # The following function will track the current price to see if we go short, long, or no trade.
-                        LONG_OR_SHORT = self.wait_for_execution(crypto, LAST_PRICE, datetime.now())
+                        LONG_OR_SHORT = self.wait_for_execution(CRYPTO, LAST_PRICE, datetime.now())
                             
                         if LONG_OR_SHORT == 'SHORT':
-                            order = self.sell_symbol_short(f'{crypto}',QUANTITY)
+                            sleep(4)
+                            file1 = open("data/trigger.txt","a")
+                            file1.write(f"Symbol: {CRYPTO}, Time: {datetime.now()}, TYPE: short, number 3, \n")
+                            file1.close()
+                            sleep(1)
+                            order = self.sell_symbol_short(f'{CRYPTO}',QUANTITY)
                             if order == False:
                                 continue
                             else:
                                 PRICE_SELL = float(order['fills'][0]['price'])
-                                LOSE_PRICE = PRICE_SELL * 1.006
-                                self.dynamic_dic[crypto] = float(PRICE_SELL) * 0.993
+                                random_tw = random.randint(1, 1000000)
+                                tweet(f'{CRYPTO}', f'{datetime.now()}', f'{PRICE_SELL}',f'SHORT')
+                                LOSE_PRICE = PRICE_SELL * 1.005
+                                self.dynamic_dic[CRYPTO] = float(PRICE_SELL) * 0.991
                                 # Set a stop loss
                                 stop_loss = self.create_stop_loss_short(f'{CRYPTO}', QUANTITY, LOSE_PRICE)
                                 # Keep track of the trade
                                 self.TRACK_DICTIONARY[CRYPTO] = {'crypto':CRYPTO, 'price_sell':PRICE_SELL,'quantity':QUANTITY, 'time_sell':datetime.now(), 'stop_loss_id':stop_loss, 'type':'SHORT'}
                                 sleep(2)
+                                file1 = open("data/trigger.txt","a")
+                                file1.write(f"Symbol: {CRYPTO}, Time: {datetime.now()}, TYPE: short, number 4, \n")
+                                file1.close()
+                                
         
                         if LONG_OR_SHORT == 'LONG':
-                            order = self.buy_symbol(f'{crypto}',QUANTITY)
+                            order = self.buy_symbol(f'{CRYPTO}',QUANTITY)
+                            file1 = open("data/trigger.txt","a")
+                            file1.write(f"Symbol: {CRYPTO}, Time: {datetime.now()}, TYPE: long, number 3, \n")
+                            file1.close()
+                            sleep(1)
                             if order == False:
                                 continue
                             else:
                                 PRICE_BUY = float(order['fills'][0]['price'])
-                                LOSE_PRICE = PRICE_BUY * 0.994
-                                self.dynamic_dic[crypto] = float(PRICE_BUY) * 1.007
+                                random_tw = random.randint(1, 1000000)
+                                tweet(f'{CRYPTO}', f'{datetime.now()}', f'{PRICE_BUY}',f'LONG')
+                                LOSE_PRICE = PRICE_BUY * 0.995
+                                self.dynamic_dic[CRYPTO] = float(PRICE_BUY) * 1.009
                                 # Set a stop loss
                                 stop_loss = self.create_stop_loss_long(f'{CRYPTO}', QUANTITY, LOSE_PRICE)
                                 # Keep track of the trade
-                                self.TRACK_DICTIONARY[CRYPTO] = {'crypto':CRYPTO, 'price_buy':PRICE_BUY,'quantity':QUANTITY, 'time_BUY':datetime.now(), 'stop_loss_id':stop_loss, 'type':'LONG'}
+                                self.TRACK_DICTIONARY[CRYPTO] = {'crypto':CRYPTO, 'price_buy':PRICE_BUY,'quantity':QUANTITY, 'time_buy':datetime.now(), 'stop_loss_id':stop_loss, 'type':'LONG'}
                                 sleep(2)
+                                file1 = open("data/trigger.txt","a")
+                                file1.write(f"Symbol: {CRYPTO}, Time: {datetime.now()}, TYPE: long, number 4, \n")
+                                file1.close()
 
 
                 
@@ -201,7 +269,7 @@ class LEONARDO:
                         
             time_elapsed_total = (datetime.now() - self.LAST_SELL).total_seconds() / 60
 
-            if (int(time_elapsed_total) % 120) == 0: 
+            if (int(time_elapsed_total) % 180) == 0: 
                 if int(time_elapsed_total) != 0:
                     random_tw = random.randint(1, 1000000)
                     tweet('STILL ALIVE', 'be patient bro', '0',f'small steps' )
@@ -254,16 +322,23 @@ class LEONARDO:
     def wait_for_execution(self, crypto, PRICE, TIME):
         
 
-        PRICE_long = PRICE * 1.003
-        PRICE_short = PRICE * 0.997
-    
+        PRICE_long = PRICE * 1.002
+        PRICE_short = PRICE * 0.998
+
+        print('Entered wait_for_execution..')
         DONE = False
         while not DONE:
             sleep(2)
-            historical = self.client.get_historical_klines(crypto, '1m' , "5 minutes ago UTC")
-            last_price = convert_df(historical)
-            last_price = last_price.iloc[-1, -2]
+            historical = self.client.get_historical_klines(crypto, '1m' , "15 minutes ago UTC")
+            last = convert_df(historical)
+            last_price = last.iloc[-1, 4]
+            last_time = last.iloc[-1, 0]
+            
             time_elapsed = (datetime.now() - TIME).total_seconds() / 60
+
+            dif_time_last = (datetime.now() - last_time).total_seconds() / 60
+#             if (dif_time_last < 4.5)|(dif_time_last > 7):
+#                 continue
             if time_elapsed > 20:
                 DONE = True
                 return False
@@ -434,11 +509,11 @@ class LEONARDO:
                 symbol=SYMBOL,
                 orderId=stop_loss_id)
             sleep(2)
-            file1 = open("trackeo_long.txt","w")
+            file1 = open("data/trackeo_long.txt","w")
             file1.write(f"antes de crear el stop, {SYMBOL}, {datetime.now()}")
             file1.close()
             stop_loss = self.create_stop_loss_long(f'{SYMBOL}', QUANTITY, PRICE)
-            file1 = open("trackeo_long.txt","w")
+            file1 = open("data/trackeo_long.txt","w")
             file1.write(f"despues de crear el stop, {SYMBOL}, {datetime.now()}")
             file1.close()
         
@@ -462,9 +537,14 @@ class LEONARDO:
             time_elapsed = (datetime.now() - TIME_SELL).total_seconds() / 60
             
             try:
-                historical = self.client.get_historical_klines(SYMBOL, '1m' , "1 hour ago UTC")
-                last_price = convert_df(historical)
-                last_price = last_price.iloc[-1, -2]
+                historical = self.client.get_historical_klines(SYMBOL, '5m' , "30 minutes ago UTC")
+                last = convert_df(historical)
+                last_price = last.iloc[-1, -2]
+                last_time = last.iloc[-1, 0]
+                
+#                 dif_time_last = (datetime.now() - last_time).total_seconds() / 60
+#                 if dif_time_last < 4:
+#                     continue
             except:
                 break
 
@@ -478,7 +558,7 @@ class LEONARDO:
 
             tipo = self.TRACK_DICTIONARY[SYMBOL]['type']
 
-            if time_elapsed > 50:
+            if time_elapsed > 30:
                 print(f'SYMBOL {SYMBOL} NO MORE TIME :( short')
                 FINAL_PRICE = float(self.finish_order_short(SYMBOL))
                 result_price = round((PRICE_SELL - FINAL_PRICE) / FINAL_PRICE * 100, 2)
@@ -518,7 +598,9 @@ class LEONARDO:
             if DONE:
                 track = pd.read_csv('data/track_df.csv', index_col=0)
                 tipo = 'SHORT'
-                combi = self.TRACK_DICTIONARY[SYMBOL]['combi']
+                file1 = open("data/trigger.txt","a")
+                file1.write(f"Symbol: {SYMBOL}, Time: {datetime.now()}, TYPE: both, number 5, \n")
+                file1.close()
                 TRACK_DF = pd.DataFrame({'CRYPTO':SYMBOL, 'SELL_TIME':TIME_SELL,  'PRICE_SELL':PRICE_SELL,'BUY_TIME':datetime.now(), 'PRICE_BUY':FINAL_PRICE, 'type':tipo}, index=[0])
                 TRACK_DF = pd.concat([track, TRACK_DF])
                 TRACK_DF.to_csv('data/track_df.csv')
@@ -543,9 +625,14 @@ class LEONARDO:
                 time_elapsed = (datetime.now() - TIME_BUY).total_seconds() / 60
                 
                 try:
-                    historical = self.client.get_historical_klines(SYMBOL, '1m' , "15 minute ago UTC")
-                    last_price = convert_df(historical)
-                    last_price = last_price.iloc[-1, -2]
+                    historical = self.client.get_historical_klines(SYMBOL, '5m' , "30 minutes ago UTC")
+                    last = convert_df(historical)
+                    last_price = last.iloc[-1, -2]
+                    last_time = last.iloc[-1, 0]
+
+#                     dif_time_last = (datetime.now() - last_time).total_seconds() / 60
+#                     if dif_time_last < 4:
+#                         continue
                 except:
                     break
 
@@ -559,7 +646,10 @@ class LEONARDO:
                 symbol=SYMBOL,
                 orderId= self.TRACK_DICTIONARY[SYMBOL]['stop_loss_id'] )['price'])
 
-                if time_elapsed > 50:
+                if time_elapsed > 30:
+                    file1 = open("data/trackeo_long.txt","w")
+                    file1.write(f"long time elapsed, {SYMBOL}, {datetime.now()}")
+                    file1.close()
                     FINAL_PRICE = float(self.finish_order_long(SYMBOL))
                     result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
                     tweet(tipo, 'Time Elapsed :|', result_price, SYMBOL)
@@ -567,6 +657,9 @@ class LEONARDO:
                     DONE = True
                 elif status in ['FILLED', 'CANCELED']:
                     DONE = True
+                    file1 = open("data/trackeo_long.txt","w")
+                    file1.write(f"long status, {SYMBOL}, {datetime.now()}")
+                    file1.close()
                     FINAL_PRICE = LOSE_PRICE
                     result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
                     if result_price > 0:
@@ -576,6 +669,9 @@ class LEONARDO:
                         resu = 'LOST :('
                     tweet(tipo, resu, result_price, SYMBOL)
                 elif last_price < LOSE_PRICE * 0.998:
+                    file1 = open("data/trackeo_long.txt","w")
+                    file1.write(f"long lost, {SYMBOL}, {datetime.now()}")
+                    file1.close()
                     print(f'SYMBOL {SYMBOL} STOP DIDNT WORK :(')
                     FINAL_PRICE = float(self.finish_order_long(SYMBOL))
                     result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
@@ -585,6 +681,9 @@ class LEONARDO:
                     print('paso el win')
                     DYNAMIC = True
                     sleep(25)
+                    file1 = open("data/trackeo_long.txt","w")
+                    file1.write(f"long win, {SYMBOL}, {datetime.now()}")
+                    file1.close()
                     try:
                         self.dynamic_stop(SYMBOL, self.dynamic_dic[SYMBOL])
                         self.dynamic_dic[SYMBOL] = self.dynamic_dic[SYMBOL] * 1.0035
@@ -596,6 +695,9 @@ class LEONARDO:
             if DONE:
                 track = pd.read_csv('data/track_df.csv', index_col=0)
                 tipo = 'LONG'
+                file1 = open("data/trigger.txt","a")
+                file1.write(f"Symbol: {SYMBOL}, Time: {datetime.now()}, TYPE: both, number 5, \n")
+                file1.close()
                 TRACK_DF = pd.DataFrame({'CRYPTO':SYMBOL, 'SELL_TIME':datetime.now(),  'PRICE_SELL':FINAL_PRICE,'BUY_TIME':TIME_BUY, 'PRICE_BUY':BUY_PRICE, 'type':tipo}, index=[0])
                 TRACK_DF = pd.concat([track, TRACK_DF])
                 TRACK_DF.to_csv('data/track_df.csv')

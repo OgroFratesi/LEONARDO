@@ -28,9 +28,9 @@ oauth = OAuth1Session(
 )
 
 # Create function to make the tweet notification
-def tweet(tipo, result, result_price, symbol):
+def tweet(tipo, result, result_price, symbol, time_elapsed):
     random_tw = random.randint(1, 10000)
-    status = f"{random_tw} | {tipo}  |  {symbol}  |  {result}  |  {result_price}%"
+    status = f"{symbol} | {tipo}  |  {time_elapsed}  |  {result}  |  {result_price}%"
     # Making the request
     payload = {'text':status}
     response = oauth.post(
@@ -80,6 +80,7 @@ class LEONARDO:
 
         self.scores_dfs = {}        
         self.TRACK_DICTIONARY = {}
+        self.wait_for_execution_dic = {}
         # Dynamic dic will be used to move the stop loss once the profit is reached
         self.dynamic_dic = {}
         self.twitter_count = 0
@@ -119,7 +120,7 @@ class LEONARDO:
                 
                 file1 = open("data/error.txt","w")
                 # Send tweet in case it was disconnected
-                tweet('ERROR', f'{datetime.now()}', f'{e}',f'ERROR')
+                tweet('ERROR', f'{datetime.now()}', f'{e}',f'ERROR', 'ERROR')
                 file1.write(f"{e},{datetime.now()}")
                 file1.close()
                 sleep(4)
@@ -150,10 +151,8 @@ class LEONARDO:
                 target = strategy.iloc[-2,-1]
                 price = strategy.iloc[-2, 4]
                 if ((dif_time > 4) & (dif_time < 9)) & (target == 1):
-        
-                    time_elapsed = (datetime.now() - self.LAST_SELL).total_seconds() / 60
                     # If there are more than one trade signal at the same time
-                    if (len(self.TRACK_DICTIONARY) < 2):
+                    if (len(self.TRACK_DICTIONARY) < 2)&(CRYPTO not in self.wait_for_execution_dic.keys()):
                         sleep(1)
                         
                         # Just in case..
@@ -164,44 +163,65 @@ class LEONARDO:
                         historical = self.client.get_historical_klines(CRYPTO, '5m' , "1 hour ago UTC")
                         minute5 = convert_df(historical)
                         LAST_PRICE = minute5.iloc[-2, 4]
-                        # The following function will track the current price to see if we go short, long, or no trade.
-                        LONG_OR_SHORT = self.wait_for_execution(CRYPTO, LAST_PRICE, datetime.now())
-                            
-                        if LONG_OR_SHORT == 'SHORT':
-                            sleep(4)
-                            order = self.sell_symbol_short(f'{CRYPTO}',QUANTITY)
-                            if order == False:
-                                continue
-                            else:
-                                PRICE_SELL = float(order['fills'][0]['price'])
-                                tweet(f'{CRYPTO}', f'{datetime.now()}', f'{PRICE_SELL}',f'SHORT')
-                                LOSE_PRICE = PRICE_SELL * 1.005
-                                self.dynamic_dic[CRYPTO] = float(PRICE_SELL) * 0.991
-                                # Set a stop loss
+                        # Insert symbol into the wait for execution dictionary
+                        self.wait_for_execution_dic[CRYPTO] = {'SYMBOL':CRYPTO, 'QUANTITY':QUANTITY, 'LAST_PRICE':LAST_PRICE, 'TIME':datetime.now()}
+                        self.insert_item_dynamo_signal(time, CRYPTO, 'signal', LAST_PRICE)
+
+                if CRYPTO in self.wait_for_execution_dic.keys():
+
+                    LAST_PRICE = self.wait_for_execution_dic[CRYPTO]['LAST_PRICE']
+                    QUANTITY = self.wait_for_execution_dic[CRYPTO]['QUANTITY']
+                    TIME = self.wait_for_execution_dic[CRYPTO]['TIME']
+                    # The following function will track the current price to see if we go short, long, or no trade.
+                    LONG_OR_SHORT = self.wait_for_execution(CRYPTO, LAST_PRICE, TIME)
+                        
+                    if LONG_OR_SHORT == 'SHORT':
+                        sleep(4)
+                        order = self.sell_symbol_short(f'{CRYPTO}',QUANTITY)
+                        if order == False:
+                            continue
+                        else:
+                            PRICE_SELL = float(order['fills'][0]['price'])
+                            # tweet(f'{CRYPTO}', f'{datetime.now()}', f'{PRICE_SELL}',f'SHORT')
+                            LOSE_PRICE = PRICE_SELL * 1.005
+                            self.dynamic_dic[CRYPTO] = float(PRICE_SELL) * 0.991
+                            # Set a stop loss. If there is an error, the price went quickly into the lose boundary, take the loss.
+                            try:
                                 stop_loss = self.create_stop_loss_short(f'{CRYPTO}', QUANTITY, LOSE_PRICE)
-                                # Keep track of the trade
-                                self.TRACK_DICTIONARY[CRYPTO] = {'crypto':CRYPTO, 'price_sell':PRICE_SELL,'quantity':QUANTITY, 'time_sell':datetime.now(), 'stop_loss_id':stop_loss, 'type':'SHORT'}
-                                sleep(2)
-
-                                
-        
-                        if LONG_OR_SHORT == 'LONG':
-                            order = self.buy_symbol(f'{CRYPTO}',QUANTITY)
-                            sleep(1)
-                            if order == False:
+                            except:
+                                self.TRACK_DICTIONARY[CRYPTO] = {'crypto':CRYPTO, 'price_sell':PRICE_SELL,'quantity':QUANTITY, 'time_sell':datetime.now(), 'stop_loss_id':'none', 'type':'SHORT'}
+                                self.finish_order_short(CRYPTO,cancelled=True)
+                                del self.TRACK_DICTIONARY[CRYPTO]
                                 continue
-                            else:
-                                PRICE_BUY = float(order['fills'][0]['price'])
-                                tweet(f'{CRYPTO}', f'{datetime.now()}', f'{PRICE_BUY}',f'LONG')
-                                LOSE_PRICE = PRICE_BUY * 0.995
-                                self.dynamic_dic[CRYPTO] = float(PRICE_BUY) * 1.009
-                                # Set a stop loss
-                                stop_loss = self.create_stop_loss_long(f'{CRYPTO}', QUANTITY, LOSE_PRICE)
-                                # Keep track of the trade
-                                self.TRACK_DICTIONARY[CRYPTO] = {'crypto':CRYPTO, 'price_buy':PRICE_BUY,'quantity':QUANTITY, 'time_buy':datetime.now(), 'stop_loss_id':stop_loss, 'type':'LONG'}
-                                sleep(2)
+                            # Keep track of the trade
+                            self.TRACK_DICTIONARY[CRYPTO] = {'crypto':CRYPTO, 'price_sell':PRICE_SELL,'quantity':QUANTITY, 'time_sell':datetime.now(), 'stop_loss_id':stop_loss, 'type':'SHORT'}
+                            sleep(2)
 
-                
+                            
+    
+                    if LONG_OR_SHORT == 'LONG':
+                        order = self.buy_symbol(f'{CRYPTO}',QUANTITY)
+                        sleep(1)
+                        if order == False:
+                            continue
+                        else:
+                            PRICE_BUY = float(order['fills'][0]['price'])
+                            # tweet(f'{CRYPTO}', f'{datetime.now()}', f'{PRICE_BUY}',f'LONG')
+                            LOSE_PRICE = PRICE_BUY * 0.995
+                            self.dynamic_dic[CRYPTO] = float(PRICE_BUY) * 1.009
+                            # Set a stop loss. If there is an error, the price went quickly into the lose boundary, take the loss.
+                            try:
+                                stop_loss = self.create_stop_loss_long(f'{CRYPTO}', QUANTITY, LOSE_PRICE)
+                            except:
+                                self.TRACK_DICTIONARY[CRYPTO] = {'crypto':CRYPTO, 'price_buy':PRICE_BUY,'quantity':QUANTITY, 'time_buy':datetime.now(), 'stop_loss_id':'none', 'type':'LONG'}
+                                self.finish_order_long(self,CRYPTO, cancelled=True)
+                                del self.TRACK_DICTIONARY[CRYPTO]
+                                continue
+                            # Keep track of the trade
+                            self.TRACK_DICTIONARY[CRYPTO] = {'crypto':CRYPTO, 'price_buy':PRICE_BUY,'quantity':QUANTITY, 'time_buy':datetime.now(), 'stop_loss_id':stop_loss, 'type':'LONG'}
+                            sleep(2)
+
+            
 
                 if len(self.TRACK_DICTIONARY) > 0:
                     # Track open trades
@@ -213,7 +233,8 @@ class LEONARDO:
 
             if (int(time_elapsed_total) % 180) == 0: 
                 if int(time_elapsed_total) != 0:
-                    tweet('STILL ALIVE', 'be patient bro', '0',f'small steps' )
+                    random_number = random.randint(1, 10000)
+                    tweet('STILL ALIVE', 'be patient bro', '0',f'small steps', random_number)
                     self.LAST_SELL = datetime.now()
 
             
@@ -262,33 +283,27 @@ class LEONARDO:
     
     def wait_for_execution(self, crypto, PRICE, TIME):
         
-
         PRICE_long = PRICE * 1.002
         PRICE_short = PRICE * 0.998
 
         print('Entered wait_for_execution..')
-        DONE = False
-        while not DONE:
-            sleep(2)
-            historical = self.client.get_historical_klines(crypto, '1m' , "15 minutes ago UTC")
-            last = convert_df(historical)
-            last_price = last.iloc[-1, 4]
-            last_time = last.iloc[-1, 0]
-            
-            time_elapsed = (datetime.now() - TIME).total_seconds() / 60
+        sleep(2)
+        historical = self.client.get_historical_klines(crypto, '1m' , "15 minutes ago UTC")
+        last = convert_df(historical)
+        last_price = last.iloc[-1, 4]
+        time_elapsed = (datetime.now() - TIME).total_seconds() / 60
 
-            dif_time_last = (datetime.now() - last_time).total_seconds() / 60
-#             if (dif_time_last < 4.5)|(dif_time_last > 7):
-#                 continue
-            if time_elapsed > 20:
-                DONE = True
-                return False
-            elif last_price > PRICE_long:
-                DONE = True
-                return 'LONG'
-            elif last_price < PRICE_short:
-                DONE = True
-                return 'SHORT'
+        if time_elapsed > 20:
+            del self.wait_for_execution_dic[crypto]
+            return False
+        elif last_price > PRICE_long:
+            del self.wait_for_execution_dic[crypto]
+            return 'LONG'
+        elif last_price < PRICE_short:
+            del self.wait_for_execution_dic[crypto]
+            return 'SHORT'
+        
+            
 
             
            
@@ -374,7 +389,7 @@ class LEONARDO:
 
         return order['orderId']
     
-    def finish_order_short(self,SYMBOL):
+    def finish_order_short(self,SYMBOL, cancelled=False):
 
         QUANTITY = self.TRACK_DICTIONARY[SYMBOL]['quantity'] * 1.003
 
@@ -383,11 +398,12 @@ class LEONARDO:
         o = self.buy_symbol(SYMBOL, QUANTITY_BUY)
 
         FINAL_PRICE = o['fills'][0]['price']
-
-        stop_loss_id = self.TRACK_DICTIONARY[SYMBOL]['stop_loss_id']
-        self.client.cancel_margin_order(
-                symbol=SYMBOL,
-                orderId=stop_loss_id)
+        
+        if not cancelled:
+            stop_loss_id = self.TRACK_DICTIONARY[SYMBOL]['stop_loss_id']
+            self.client.cancel_margin_order(
+                    symbol=SYMBOL,
+                    orderId=stop_loss_id)
 
         self.pay_loan(SYMBOL, QUANTITY)
 
@@ -395,7 +411,7 @@ class LEONARDO:
     
     def finish_order_long(self,SYMBOL, cancelled=False):
 
-        QUANTITY = self.TRACK_DICTIONARY[SYMBOL]['quantity'] * 0.998
+        QUANTITY = self.TRACK_DICTIONARY[SYMBOL]['quantity'] * 0.999
 
         QUANTITY_SELL = self.create_quantity(SYMBOL, QUANTITY)
         print('from_system', QUANTITY_SELL)
@@ -406,10 +422,11 @@ class LEONARDO:
                 QUANTITY_SELL2 = assets['netAsset']
                 print('from_api', QUANTITY_SELL2)
         
-        stop_loss_id = self.TRACK_DICTIONARY[SYMBOL]['stop_loss_id']
-        print('ANTES DE CANCELAR LA ORDEN')
         
         if not cancelled:
+
+            stop_loss_id = self.TRACK_DICTIONARY[SYMBOL]['stop_loss_id']
+            print('ANTES DE CANCELAR LA ORDEN')
             self.client.cancel_margin_order(
                     symbol=SYMBOL,
                     orderId=stop_loss_id)
@@ -498,7 +515,7 @@ class LEONARDO:
             if time_elapsed > 30:
                 FINAL_PRICE = float(self.finish_order_short(SYMBOL))
                 result_price = round((PRICE_SELL - FINAL_PRICE) / FINAL_PRICE * 100, 2)
-                tweet(tipo, 'Time Elapsed :|', result_price, SYMBOL)
+                tweet(tipo, 'Time Elapsed :|', result_price, SYMBOL, time_elapsed)
                 DONE = True
             elif status in ['FILLED', 'CANCELED']:
                 self.pay_loan(SYMBOL, QUANTITY)
@@ -509,11 +526,11 @@ class LEONARDO:
                     resu = 'WIN :)'
                 else:
                     resu = 'LOST :('
-                tweet(tipo, resu, result_price, SYMBOL)
+                tweet(tipo, resu, result_price, SYMBOL, time_elapsed)
             elif last_price > LOSE_PRICE * 1.002:
                 FINAL_PRICE = float(self.finish_order_short(SYMBOL))
                 result_price = round((PRICE_SELL - FINAL_PRICE) / FINAL_PRICE * 100, 2)
-                tweet(tipo, 'LOST :(', result_price, SYMBOL)
+                tweet(tipo, 'LOST :(', result_price, SYMBOL, time_elapsed)
                 DONE = True
             elif last_price < self.dynamic_dic[SYMBOL]:
                 sleep(25)
@@ -523,13 +540,13 @@ class LEONARDO:
                 except:
                     FINAL_PRICE = float(self.finish_order_short(SYMBOL))
                     result_price = round((PRICE_SELL - FINAL_PRICE) / FINAL_PRICE * 100, 2)
-                    tweet(tipo, 'WIN :)', result_price, SYMBOL)
+                    tweet(tipo, 'WIN :)', result_price, SYMBOL, time_elapsed)
                     DONE = True
 
 
             if DONE:
                 tipo = 'SHORT'
-                self.insert_item_dynamo_final(datetime.now(),SYMBOL,tipo,datetime.now,FINAL_PRICE, TIME_SELL, PRICE_SELL)
+                self.insert_item_dynamo_final(datetime.now(),SYMBOL,tipo,datetime.now*(),FINAL_PRICE, TIME_SELL, PRICE_SELL)
                 del self.TRACK_DICTIONARY[SYMBOL]
                 break
                 print('*****************************************************')
@@ -575,7 +592,7 @@ class LEONARDO:
                 if time_elapsed > 30:
                     FINAL_PRICE = float(self.finish_order_long(SYMBOL))
                     result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
-                    tweet(tipo, 'Time Elapsed :|', result_price, SYMBOL)
+                    tweet(tipo, 'Time Elapsed :|', result_price, SYMBOL, time_elapsed)
                     DONE = True
                 elif status in ['FILLED', 'CANCELED']:
                     DONE = True
@@ -586,11 +603,11 @@ class LEONARDO:
                     else:
                         print(f'{SYMBOL} LOST :(')
                         resu = 'LOST :('
-                    tweet(tipo, resu, result_price, SYMBOL)
+                    tweet(tipo, resu, result_price, SYMBOL, time_elapsed)
                 elif last_price < LOSE_PRICE * 0.998:
                     FINAL_PRICE = float(self.finish_order_long(SYMBOL))
                     result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
-                    tweet(tipo, 'LOST :(', result_price, SYMBOL)
+                    tweet(tipo, 'LOST :(', result_price, SYMBOL, time_elapsed)
                     DONE = True
                 elif last_price > self.dynamic_dic[SYMBOL]:
                     DYNAMIC = True
@@ -601,7 +618,7 @@ class LEONARDO:
                     except:
                         FINAL_PRICE = float(self.finish_order_long(SYMBOL,cancelled=True))
                         result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
-                        tweet(tipo, 'WIN :)', result_price, SYMBOL)
+                        tweet(tipo, 'WIN :)', result_price, SYMBOL, time_elapsed)
                         DONE = True
             if DONE:
                 tipo = 'LONG'
@@ -637,6 +654,17 @@ class LEONARDO:
             'price_buy':f'{buy_price}',
             'sell_time':f'{sell_time}',
             'sell_price':f'{sell_price}'
+        }
+
+        response = self.dynamodb_table.put_item(Item=item_data)
+
+    def insert_item_dynamo_signal(self, time, symbol, TYPE, price_signal):
+
+        item_data = {
+            'time': f'{time}',
+            'symbol': f'{symbol}',
+            'type':f'{TYPE}',
+            'price_signal': f'{price_signal}'
         }
 
         response = self.dynamodb_table.put_item(Item=item_data)

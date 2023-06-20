@@ -515,7 +515,7 @@ class LEONARDO:
             if time_elapsed > 30:
                 FINAL_PRICE = float(self.finish_order_short(SYMBOL))
                 result_price = round((PRICE_SELL - FINAL_PRICE) / FINAL_PRICE * 100, 2)
-                tweet(tipo, 'Time Elapsed :|', result_price, SYMBOL, time_elapsed)
+                tweet(tipo, 'Time Elapsed :|', result_price, SYMBOL, round(time_elapsed,2))
                 DONE = True
             elif status in ['FILLED', 'CANCELED']:
                 self.pay_loan(SYMBOL, QUANTITY)
@@ -526,11 +526,11 @@ class LEONARDO:
                     resu = 'WIN :)'
                 else:
                     resu = 'LOST :('
-                tweet(tipo, resu, result_price, SYMBOL, time_elapsed)
+                tweet(tipo, resu, result_price, SYMBOL, round(time_elapsed,2))
             elif last_price > LOSE_PRICE * 1.002:
                 FINAL_PRICE = float(self.finish_order_short(SYMBOL))
                 result_price = round((PRICE_SELL - FINAL_PRICE) / FINAL_PRICE * 100, 2)
-                tweet(tipo, 'LOST :(', result_price, SYMBOL, time_elapsed)
+                tweet(tipo, 'LOST :(', result_price, SYMBOL, round(time_elapsed,2))
                 DONE = True
             elif last_price < self.dynamic_dic[SYMBOL]:
                 sleep(25)
@@ -540,7 +540,7 @@ class LEONARDO:
                 except:
                     FINAL_PRICE = float(self.finish_order_short(SYMBOL))
                     result_price = round((PRICE_SELL - FINAL_PRICE) / FINAL_PRICE * 100, 2)
-                    tweet(tipo, 'WIN :)', result_price, SYMBOL, time_elapsed)
+                    tweet(tipo, 'WIN :)', result_price, SYMBOL, round(time_elapsed,2))
                     DONE = True
 
 
@@ -592,7 +592,7 @@ class LEONARDO:
                 if time_elapsed > 30:
                     FINAL_PRICE = float(self.finish_order_long(SYMBOL))
                     result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
-                    tweet(tipo, 'Time Elapsed :|', result_price, SYMBOL, time_elapsed)
+                    tweet(tipo, 'Time Elapsed :|', result_price, SYMBOL, round(time_elapsed,2))
                     DONE = True
                 elif status in ['FILLED', 'CANCELED']:
                     DONE = True
@@ -603,11 +603,11 @@ class LEONARDO:
                     else:
                         print(f'{SYMBOL} LOST :(')
                         resu = 'LOST :('
-                    tweet(tipo, resu, result_price, SYMBOL, time_elapsed)
+                    tweet(tipo, resu, result_price, SYMBOL, round(time_elapsed,2))
                 elif last_price < LOSE_PRICE * 0.998:
                     FINAL_PRICE = float(self.finish_order_long(SYMBOL))
                     result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
-                    tweet(tipo, 'LOST :(', result_price, SYMBOL, time_elapsed)
+                    tweet(tipo, 'LOST :(', result_price, SYMBOL, round(time_elapsed,2))
                     DONE = True
                 elif last_price > self.dynamic_dic[SYMBOL]:
                     DYNAMIC = True
@@ -618,7 +618,7 @@ class LEONARDO:
                     except:
                         FINAL_PRICE = float(self.finish_order_long(SYMBOL,cancelled=True))
                         result_price = round((FINAL_PRICE - BUY_PRICE) / BUY_PRICE * 100, 2)
-                        tweet(tipo, 'WIN :)', result_price, SYMBOL, time_elapsed)
+                        tweet(tipo, 'WIN :)', result_price, SYMBOL, round(time_elapsed,2))
                         DONE = True
             if DONE:
                 tipo = 'LONG'

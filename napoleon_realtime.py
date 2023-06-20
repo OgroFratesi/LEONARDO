@@ -237,6 +237,11 @@ class LEONARDO:
                     tweet('STILL ALIVE', 'be patient bro', '0',f'small steps', random_number)
                     self.LAST_SELL = datetime.now()
 
+            if (int(time_elapsed_total) % 15) == 0: 
+                if int(time_elapsed_total) != 0:
+                    self.insert_item_dynamo_signal(datetime.now(), 'active', 'status', 'status-active')
+                    
+
             
             self.client.close_connection()
 

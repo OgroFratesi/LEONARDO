@@ -24,7 +24,5 @@ if __name__ == "__main__":
     time.sleep(3)
 
     print('LEONARDO ha comenzado. Buena suerte.')
-
-    trader.insert_item_dynamo_final(datetime.now(), 'test', 'test', 'test', 'test', 'test', 'test')
     
     trader.run()

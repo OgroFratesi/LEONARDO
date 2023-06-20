@@ -165,7 +165,7 @@ class LEONARDO:
                         LAST_PRICE = minute5.iloc[-2, 4]
                         # Insert symbol into the wait for execution dictionary
                         self.wait_for_execution_dic[CRYPTO] = {'SYMBOL':CRYPTO, 'QUANTITY':QUANTITY, 'LAST_PRICE':LAST_PRICE, 'TIME':datetime.now()}
-                        self.insert_item_dynamo_signal(time, CRYPTO, 'signal', LAST_PRICE)
+                        self.insert_item_dynamo_signal(last_price_time, CRYPTO, 'signal', LAST_PRICE)
 
                 if CRYPTO in self.wait_for_execution_dic.keys():
 
@@ -546,7 +546,7 @@ class LEONARDO:
 
             if DONE:
                 tipo = 'SHORT'
-                self.insert_item_dynamo_final(datetime.now(),SYMBOL,tipo,datetime.now*(),FINAL_PRICE, TIME_SELL, PRICE_SELL)
+                self.insert_item_dynamo_final(datetime.now(),SYMBOL,tipo,datetime.now(),FINAL_PRICE, TIME_SELL, PRICE_SELL)
                 del self.TRACK_DICTIONARY[SYMBOL]
                 break
                 print('*****************************************************')

@@ -94,6 +94,11 @@ class LEONARDO:
         self.client = Client(self.API_KEY, self.SECRET_KEY, tld='com')
 
         while True:
+
+            # Keep local track, we can know when was stopped
+            file1 = open("data/trackeo.txt","a")
+            file1.write(f"{datetime.now()}  \n")
+            file1.close()
             
             
             # We connect every time we can in case we lost connection
